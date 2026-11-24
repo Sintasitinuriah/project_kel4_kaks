@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Pencarian Produk ({{ mode|upper }}) | Defense-in-Depth SQLi Lab{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="pill {% if mode == 'secure' %}pill-ok{% else %}pill-danger{% endif %}">
+      Mode: /{{ mode }}
+    </span>
+    <h1>Pencarian Produk &mdash; {{ 'Parameterized Query (Aman)' if mode == 'secure' else 'String Concatenation (Rentan SQLi)' }}</h1>
+  </div>
+  <div>
+    {% if mode == 'vulnerable' %}
+      <a class="btn btn-success" href="{{ url_for('secure.products') }}">Pindah ke /secure/products</a>
+    {% else %}
+      <a class="btn btn-danger" href="{{ url_for('vulnerable.products') }}">Pindah ke /vulnerable/products</a>
+    {% endif %}
+  </div>
+</div>
+
+<section class="card">
+  <form method="GET" class="search-bar">
+    <input id="q" name="q" type="text" value="{{ q }}" placeholder="Cari nama atau kategori produk (misal: WAF, Cloud, Database)..." />
+    <button type="submit" class="btn {% if mode == 'secure' %}btn-success{% else %}btn-danger{% endif %}">Cari</button>
+    <a class="btn btn-ghost" href="{{ url_for(mode + '.products') }}">Reset</a>
+  </form>
+
+  <div class="payload-box">
+    <p class="muted small">Klik untuk mengisi cepat contoh payload uji:</p>
+    <div class="chips">
+      <button type="button" class="chip" onclick="fillSearch('Cloud')">Normal: Cloud</button>
+      <button type="button" class="chip chip-warn" onclick="fillSearch(&quot;' UNION SELECT id, username, password, 0, 0, email FROM users --&quot;)">SQLi UNION Extract Users</button>
+      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DROP TABLE products; --&quot;)">SQLi DROP TABLE (Uji Layer 4)</button>
+      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DELETE FROM users; --&quot;)">SQLi DELETE (Uji Layer 4)</button>
+    </div>
+  </div>
+</section>
+
+{% if defense_blocked %}
+  <div class="alert alert-shield mt-16">
+    <strong>Diblokir oleh Layer 4 (DB Least Privilege)</strong><br />
+    {{ defense_blocked }}
+  </div>
+{% endif %}
+
+{% if error %}
+  <div class="alert alert-error mt-16">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if executed_query %}
+  <div class="code-box mt-16">
+    <div class="code-label">SQL yang Dieksekusi (Demo Edukatif):</div>
+    <pre><code>{{ executed_query }}</code></pre>
+  </div>
+{% endif %}
+
+<section class="card mt-16">
+  <h3>Hasil Katalog ({{ products|length }} item)</h3>
+  {% if products %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nama Produk</th>
+            <th>Kategori</th>
+            <th>Harga (USD)</th>
+            <th>Stok</th>
+            <th>Deskripsi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td>{{ p.id }}</td>
+            <td><strong>{{ p.name }}</strong></td>
+            <td>{{ p.category }}</td>
+            <td>${{ "%.2f"|format(p.price|float) }}</td>
+            <td>{{ p.stock }}</td>
+            <td>{{ p.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">Tidak ada produk yang cocok dengan pencarian Anda.</p>
+  {% endif %}
+</section>
+
+<script>
+  function fillSearch(val) {
+    document.getElementById('q').value = val;
+  }
+</script>
+{% endblock %}

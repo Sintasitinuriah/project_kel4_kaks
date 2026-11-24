@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Defense-in-Depth SQLi Lab{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="{{ url_for('home') }}">
+        <span class="brand-badge">DiD</span>
+        <span>Cloud Security Lab &mdash; SQLi Defense-in-Depth</span>
+      </a>
+      <nav class="nav">
+        <a href="{{ url_for('home') }}">Dashboard</a>
+        <a class="nav-vuln" href="{{ url_for('vulnerable.login') }}">Vulnerable Login</a>
+        <a class="nav-vuln" href="{{ url_for('vulnerable.products') }}">Vulnerable Search</a>
+        <a class="nav-sec" href="{{ url_for('secure.login') }}">Secure Login</a>
+        <a class="nav-sec" href="{{ url_for('secure.products') }}">Secure Search</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      Proyek UAS Keamanan Jaringan Cloud &bull; Simulasi VPC 3-Tier (Nginx ModSecurity CRS + Flask + PostgreSQL Least Privilege)
+    </div>
+  </footer>
+</body>
+</html>

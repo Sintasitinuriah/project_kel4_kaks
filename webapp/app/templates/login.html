@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Login ({{ mode|upper }}) | Defense-in-Depth SQLi Lab{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <span class="pill {% if mode == 'secure' %}pill-ok{% else %}pill-danger{% endif %}">
+      Mode: /{{ mode }}
+    </span>
+    <h1>Halaman Login &mdash; {{ 'Parameterized Query (Aman)' if mode == 'secure' else 'String Concatenation (Rentan SQLi)' }}</h1>
+  </div>
+  <div>
+    {% if mode == 'vulnerable' %}
+      <a class="btn btn-success" href="{{ url_for('secure.login') }}">Pindah ke /secure/login</a>
+    {% else %}
+      <a class="btn btn-danger" href="{{ url_for('vulnerable.login') }}">Pindah ke /vulnerable/login</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <form method="POST" class="form">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" value="{{ username }}" placeholder="Contoh: budi atau ' OR '1'='1' --" required />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" placeholder="Masukkan password" />
+
+      <button type="submit" class="btn {% if mode == 'secure' %}btn-success{% else %}btn-danger{% endif %}">
+        Masuk ({{ mode|upper }})
+      </button>
+    </form>
+
+    <div class="payload-box">
+      <p class="muted small">Klik untuk mengisi cepat contoh payload uji:</p>
+      <div class="chips">
+        <button type="button" class="chip" onclick="fillLogin('budi', 'BudiPass123!')">Valid: budi</button>
+        <button type="button" class="chip chip-warn" onclick="fillLogin(&quot;' OR '1'='1' --&quot;, 'x')">SQLi Auth Bypass</button>
+        <button type="button" class="chip chip-danger" onclick="fillLogin(&quot;admin' --&quot;, 'x')">SQLi Comment Bypass</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Hasil Autentikasi &amp; Inspeksi</h3>
+
+    {% if user %}
+      <div class="alert alert-success">
+        <strong>Login Berhasil!</strong><br />
+        User: <code>{{ user.username }}</code> | Role: <code>{{ user.role }}</code> | Email: <code>{{ user.email }}</code>
+      </div>
+    {% endif %}
+
+    {% if defense_blocked %}
+      <div class="alert alert-shield">
+        <strong>Diblokir oleh Layer 4 (DB Least Privilege)</strong><br />
+        {{ defense_blocked }}
+      </div>
+    {% endif %}
+
+    {% if error %}
+      <div class="alert alert-error">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    {% if executed_query %}
+      <div class="code-box">
+        <div class="code-label">SQL yang Dieksekusi (Demo Edukatif):</div>
+        <pre><code>{{ executed_query }}</code></pre>
+      </div>
+    {% else %}
+      <p class="muted">Kirim form login untuk melihat bagaimana query dieksekusi pada mode <code>/{{ mode }}</code>.</p>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+  function fillLogin(u, p) {
+    document.getElementById('username').value = u;
+    document.getElementById('password').value = p;
+  }
+</script>
+{% endblock %}

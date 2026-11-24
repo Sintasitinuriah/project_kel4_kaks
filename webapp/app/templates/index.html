@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Defense-in-Depth SQLi Lab{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Defense-in-Depth: Mitigasi Serangan SQL Injection</h1>
+  <p>
+    Simulasi arsitektur cloud lokal berbasis Docker Compose dengan 4 lapisan pertahanan independen:
+    <strong>VPC Segmentation</strong>, <strong>WAF (ModSecurity v3 + OWASP CRS)</strong>,
+    <strong>Parameterized Queries</strong>, dan <strong>PostgreSQL Least Privilege</strong>.
+  </p>
+  <div class="hero-actions">
+    <a class="btn btn-danger" href="{{ url_for('vulnerable.login') }}">Uji Mode /vulnerable</a>
+    <a class="btn btn-success" href="{{ url_for('secure.login') }}">Uji Mode /secure</a>
+  </div>
+</section>
+
+<section class="grid-4">
+  <div class="card">
+    <span class="pill pill-info">Layer 1</span>
+    <h3>VPC Segmentation</h3>
+    <p class="muted">
+      <code>public_net</code> (DMZ) &rarr; <code>private_app_net</code> (internal) &rarr; <code>private_db_net</code> (internal).
+      Web App dan Database tidak terekspos ke publik.
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="pill {% if waf_mode == 'On' %}pill-ok{% elif waf_mode == 'DetectionOnly' %}pill-warn{% else %}pill-danger{% endif %}">
+      Layer 2 &bull; WAF: {{ waf_mode }}
+    </span>
+    <h3>Nginx + ModSecurity CRS</h3>
+    <p class="muted">
+      Paranoia Level <strong>{{ crs_paranoia }}</strong>. Mode dapat diubah via <code>MODSEC_RULE_ENGINE</code>
+      di <code>.env</code> (<code>On</code> / <code>DetectionOnly</code> / <code>Off</code>).
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="pill pill-info">Layer 3</span>
+    <h3>Application Hardening</h3>
+    <p class="muted">
+      Bandingkan langsung <code>/vulnerable/*</code> (raw string concatenation) melawan
+      <code>/secure/*</code> (<code>psycopg2</code> parameterized queries + input validation).
+    </p>
+  </div>
+
+  <div class="card">
+    <span class="pill {% if db_status and not db_status.is_superuser and not db_status.can_delete %}pill-ok{% else %}pill-warn{% endif %}">
+      Layer 4 &bull; Least Privilege
+    </span>
+    <h3>PostgreSQL RBAC</h3>
+    {% if db_status %}
+      <ul class="kv-list">
+        <li>Role Aktif: <code>{{ db_status.db_user }}</code></li>
+        <li>Superuser: <strong>{{ 'TIDAK' if not db_status.is_superuser else 'YA' }}</strong></li>
+        <li>SELECT/INSERT/UPDATE: <strong>{{ 'OK' if (db_status.can_select and db_status.can_insert and db_status.can_update) else 'PARSIAL' }}</strong></li>
+        <li>DELETE / CREATE DDL: <strong>{{ 'DITOLAK' if (not db_status.can_delete and not db_status.can_create_schema) else 'DIIZINKAN' }}</strong></li>
+      </ul>
+    {% else %}
+      <p class="muted">Status DB tidak tersedia: {{ db_error }}</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card mt-24">
+  <h2>Akun Demo &amp; Endpoint Pengujian</h2>
+  <div class="grid-2">
+    <div>
+      <h4>Kredensial Valid (Seed Data)</h4>
+      <ul class="kv-list">
+        <li><code>admin</code> / <code>AdminCloud#2026</code> (administrator)</li>
+        <li><code>budi</code> / <code>BudiPass123!</code> (customer)</li>
+        <li><code>sinta</code> / <code>SintaSec456!</code> (sec_analyst)</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Rekomendasi Skenario Demo</h4>
+      <ul class="kv-list">
+        <li>Login Bypass: <code>' OR '1'='1' --</code></li>
+        <li>UNION Data Leak: <code>' UNION SELECT id, username, password, 0, 0, email FROM users --</code></li>
+        <li>Destructive DDL (Uji Layer 4): <code>'; DROP TABLE products; --</code></li>
+        <li>Destructive DML (Uji Layer 4): <code>'; DELETE FROM users; --</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+{% endblock %}

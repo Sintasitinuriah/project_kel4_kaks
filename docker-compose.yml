@@ -1,0 +1,162 @@
+# ==============================================================================
+# Defense-in-Depth Mitigasi Serangan SQL Injection
+# Simulasi Arsitektur Cloud VPC 3-Tier dengan Docker Compose
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # TIER 1 (DMZ / Public Subnet): WAF & Reverse Proxy
+  # Nginx + ModSecurity v3 + OWASP Core Rule Set (CRS)
+  # ----------------------------------------------------------------------------
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    container_name: did_waf
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      # Satu-satunya port yang diekspos ke host / jaringan publik
+      - "${WAF_PORT:-8080}:8080"
+    environment:
+      BACKEND: "http://webapp:5000"
+      PORT: "8080"
+      PROXY: "1"
+      # Toggle mode WAF via .env: On (Blocking) | DetectionOnly | Off
+      MODSEC_RULE_ENGINE: "${MODSEC_RULE_ENGINE:-On}"
+      PARANOIA: "${CRS_PARANOIA:-1}"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+      MODSEC_REQ_BODY_ACCESS: "On"
+      MODSEC_RESP_BODY_ACCESS: "Off"
+      MODSEC_AUDIT_ENGINE: "RelevantOnly"
+      MODSEC_AUDIT_LOG: "/var/log/modsec/audit.log"
+      MODSEC_AUDIT_LOG_FORMAT: "JSON"
+      MODSEC_AUDIT_LOG_TYPE: "Serial"
+      MODSEC_AUDIT_LOG_PARTS: "ABIJDEFHZ"
+      ACCESSLOG: "/var/log/modsec/access.log"
+      ERRORLOG: "/var/log/modsec/error.log"
+    volumes:
+      - ./waf/modsecurity/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
+      - ./logs/waf:/var/log/modsec
+    depends_on:
+      webapp:
+        condition: service_healthy
+    networks:
+      # WAF berada di perbatasan public_net dan private_app_net
+      # WAF TIDAK terhubung ke private_db_net (isolasi east-west)
+      - public_net
+      - private_app_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # TIER 2 (Private App Subnet): Web Application (Python Flask + Gunicorn)
+  # Menyediakan endpoint /vulnerable dan /secure untuk komparasi Layer 3
+  # ----------------------------------------------------------------------------
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: did_webapp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # Tidak ada mapping 'ports' ke host; hanya dapat diakses dari WAF via private_app_net
+    expose:
+      - "5000"
+    environment:
+      FLASK_SECRET_KEY: "${FLASK_SECRET_KEY:-uas-cloud-sec-local-dev-key-2026}"
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      DB_NAME: "${POSTGRES_DB:-cloudshop_db}"
+      # Web App HANYA menggunakan app_user (Least Privilege), BUKAN superuser
+      DB_USER: "${APP_DB_USER:-app_user}"
+      DB_PASSWORD: "${APP_DB_PASSWORD:-AppUserSecurePass!2026}"
+      WAF_MODE_INFO: "${MODSEC_RULE_ENGINE:-On}"
+      CRS_PARANOIA_INFO: "${CRS_PARANOIA:-1}"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - private_app_net
+      - private_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # TIER 3 (Private DB Subnet): Database PostgreSQL 16 (Least Privilege)
+  # Terisolasi penuh di private_db_net (internal: true), tanpa akses publik
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: did_postgres
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # Tidak ada mapping 'ports' ke host; tidak bisa diakses dari public_net maupun waf
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-cloudshop_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres_admin}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-SuperSecretAdminPass!2026}"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_error_statement=error"
+      - "-c"
+      - "log_statement=ddl"
+    volumes:
+      - ./db/init/01_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - private_db_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres_admin} -d ${POSTGRES_DB:-cloudshop_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# ==============================================================================
+# SEGMENTASI JARINGAN (SIMULASI CLOUD VPC 172.20.0.0/16)
+# ==============================================================================
+networks:
+  # Public Subnet (DMZ): Hanya menghubungkan WAF/Reverse Proxy ke jaringan luar
+  public_net:
+    name: did_public_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+          gateway: 172.20.1.1
+
+  # Private App Subnet: Internal-only, menghubungkan WAF <-> Web Server
+  private_app_net:
+    name: did_private_app_net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
+
+  # Private DB Subnet: Internal-only, menghubungkan Web Server <-> Database
+  private_db_net:
+    name: did_private_db_net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.20.3.0/24
+
+volumes:
+  pg_data:
+    name: did_pg_data
