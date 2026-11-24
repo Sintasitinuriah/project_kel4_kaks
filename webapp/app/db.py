@@ -40,3 +40,40 @@ def get_db_security_status():
     finally:
         if conn:
             conn.close()
+
+
+def get_live_telemetry():
+    """Mengambil metrik integritas tabel & log pencarian terbaru untuk dashboard interaktif."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM products")
+            products_count = cur.fetchone()["cnt"]
+
+            cur.execute("SELECT COUNT(*) AS cnt FROM users")
+            users_count = cur.fetchone()["cnt"]
+
+            cur.execute("SELECT COUNT(*) AS cnt FROM search_logs")
+            logs_count = cur.fetchone()["cnt"]
+
+            cur.execute(
+                """
+                SELECT id, endpoint_mode, query_text,
+                       TO_CHAR(created_at, 'HH24:MI:SS') AS logged_at
+                FROM search_logs
+                ORDER BY id DESC
+                LIMIT 6
+                """
+            )
+            recent_logs = [dict(r) for r in cur.fetchall()]
+
+        return {
+            "products_count": products_count,
+            "users_count": users_count,
+            "logs_count": logs_count,
+            "recent_logs": recent_logs,
+        }
+    finally:
+        if conn:
+            conn.close()

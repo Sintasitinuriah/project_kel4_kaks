@@ -1,7 +1,7 @@
 import os
 from flask import Flask, jsonify, render_template
 
-from .db import get_db_security_status
+from .db import get_db_security_status, get_live_telemetry
 from .routes_secure import secure_bp
 from .routes_vulnerable import vulnerable_bp
 
@@ -23,9 +23,11 @@ def create_app():
     @app.route("/")
     def home():
         db_status = {}
+        telemetry = {}
         db_error = None
         try:
             db_status = get_db_security_status()
+            telemetry = get_live_telemetry()
         except Exception as exc:
             db_error = str(exc)
 
@@ -34,8 +36,28 @@ def create_app():
             waf_mode=os.environ.get("WAF_MODE_INFO", "On"),
             crs_paranoia=os.environ.get("CRS_PARANOIA_INFO", "1"),
             db_status=db_status,
+            telemetry=telemetry,
             db_error=db_error,
         )
+
+    @app.route("/api/telemetry")
+    def api_telemetry():
+        try:
+            db_status = get_db_security_status()
+            telemetry = get_live_telemetry()
+            return (
+                jsonify(
+                    {
+                        "waf_mode": os.environ.get("WAF_MODE_INFO", "On"),
+                        "crs_paranoia": os.environ.get("CRS_PARANOIA_INFO", "1"),
+                        "db_status": db_status,
+                        "telemetry": telemetry,
+                    }
+                ),
+                200,
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 503
 
     @app.route("/health")
     def health():

@@ -1,88 +1,334 @@
 {% extends "base.html" %}
-{% block title %}Dashboard | Defense-in-Depth SQLi Lab{% endblock %}
+{% block title %}Interactive Command Center | Defense-in-Depth SQLi Lab{% endblock %}
 
 {% block content %}
 <section class="hero">
-  <h1>Defense-in-Depth: Mitigasi Serangan SQL Injection</h1>
-  <p>
-    Simulasi arsitektur cloud lokal berbasis Docker Compose dengan 4 lapisan pertahanan independen:
-    <strong>VPC Segmentation</strong>, <strong>WAF (ModSecurity v3 + OWASP CRS)</strong>,
-    <strong>Parameterized Queries</strong>, dan <strong>PostgreSQL Least Privilege</strong>.
-  </p>
-  <div class="hero-actions">
-    <a class="btn btn-danger" href="{{ url_for('vulnerable.login') }}">Uji Mode /vulnerable</a>
-    <a class="btn btn-success" href="{{ url_for('secure.login') }}">Uji Mode /secure</a>
-  </div>
-</section>
-
-<section class="grid-4">
-  <div class="card">
-    <span class="pill pill-info">Layer 1</span>
-    <h3>VPC Segmentation</h3>
-    <p class="muted">
-      <code>public_net</code> (DMZ) &rarr; <code>private_app_net</code> (internal) &rarr; <code>private_db_net</code> (internal).
-      Web App dan Database tidak terekspos ke publik.
-    </p>
-  </div>
-
-  <div class="card">
-    <span class="pill {% if waf_mode == 'On' %}pill-ok{% elif waf_mode == 'DetectionOnly' %}pill-warn{% else %}pill-danger{% endif %}">
-      Layer 2 &bull; WAF: {{ waf_mode }}
-    </span>
-    <h3>Nginx + ModSecurity CRS</h3>
-    <p class="muted">
-      Paranoia Level <strong>{{ crs_paranoia }}</strong>. Mode dapat diubah via <code>MODSEC_RULE_ENGINE</code>
-      di <code>.env</code> (<code>On</code> / <code>DetectionOnly</code> / <code>Off</code>).
-    </p>
-  </div>
-
-  <div class="card">
-    <span class="pill pill-info">Layer 3</span>
-    <h3>Application Hardening</h3>
-    <p class="muted">
-      Bandingkan langsung <code>/vulnerable/*</code> (raw string concatenation) melawan
-      <code>/secure/*</code> (<code>psycopg2</code> parameterized queries + input validation).
-    </p>
-  </div>
-
-  <div class="card">
-    <span class="pill {% if db_status and not db_status.is_superuser and not db_status.can_delete %}pill-ok{% else %}pill-warn{% endif %}">
-      Layer 4 &bull; Least Privilege
-    </span>
-    <h3>PostgreSQL RBAC</h3>
-    {% if db_status %}
-      <ul class="kv-list">
-        <li>Role Aktif: <code>{{ db_status.db_user }}</code></li>
-        <li>Superuser: <strong>{{ 'TIDAK' if not db_status.is_superuser else 'YA' }}</strong></li>
-        <li>SELECT/INSERT/UPDATE: <strong>{{ 'OK' if (db_status.can_select and db_status.can_insert and db_status.can_update) else 'PARSIAL' }}</strong></li>
-        <li>DELETE / CREATE DDL: <strong>{{ 'DITOLAK' if (not db_status.can_delete and not db_status.can_create_schema) else 'DIIZINKAN' }}</strong></li>
-      </ul>
-    {% else %}
-      <p class="muted">Status DB tidak tersedia: {{ db_error }}</p>
-    {% endif %}
-  </div>
-</section>
-
-<section class="card mt-24">
-  <h2>Akun Demo &amp; Endpoint Pengujian</h2>
-  <div class="grid-2">
+  <div class="hero-top">
     <div>
-      <h4>Kredensial Valid (Seed Data)</h4>
-      <ul class="kv-list">
-        <li><code>admin</code> / <code>AdminCloud#2026</code> (administrator)</li>
-        <li><code>budi</code> / <code>BudiPass123!</code> (customer)</li>
-        <li><code>sinta</code> / <code>SintaSec456!</code> (sec_analyst)</li>
-      </ul>
+      <span class="pill pill-info">Interactive Cloud Security Lab</span>
+      <h1>Defense-in-Depth: Mitigasi Serangan SQL Injection</h1>
+      <p>
+        Uji serangan SQL Injection secara langsung pada arsitektur simulasi VPC 3-Tier dan amati
+        bagaimana <strong>WAF (Layer 2)</strong>, <strong>Parameterized Queries (Layer 3)</strong>, dan
+        <strong>PostgreSQL Least Privilege (Layer 4)</strong> bekerja secara berlapis.
+      </p>
     </div>
-    <div>
-      <h4>Rekomendasi Skenario Demo</h4>
-      <ul class="kv-list">
-        <li>Login Bypass: <code>' OR '1'='1' --</code></li>
-        <li>UNION Data Leak: <code>' UNION SELECT id, username, password, 0, 0, email FROM users --</code></li>
-        <li>Destructive DDL (Uji Layer 4): <code>'; DROP TABLE products; --</code></li>
-        <li>Destructive DML (Uji Layer 4): <code>'; DELETE FROM users; --</code></li>
-      </ul>
+    <div class="status-panel">
+      <div class="status-row">
+        <span class="muted">WAF Engine:</span>
+        <span id="liveWafBadge" class="pill {% if waf_mode == 'On' %}pill-ok{% elif waf_mode == 'DetectionOnly' %}pill-warn{% else %}pill-danger{% endif %}">
+          {{ waf_mode }} (Paranoia {{ crs_paranoia }})
+        </span>
+      </div>
+      <div class="status-row">
+        <span class="muted">DB Role Aktif:</span>
+        <code id="liveDbUser">{{ db_status.db_user if db_status else 'N/A' }}</code>
+      </div>
+      <div class="status-row">
+        <span class="muted">Integritas Data:</span>
+        <span id="liveIntegrityBadge" class="pill pill-ok">
+          {{ telemetry.products_count if telemetry else 0 }} Produk &bull; {{ telemetry.users_count if telemetry else 0 }} User
+        </span>
+      </div>
     </div>
   </div>
 </section>
+
+<!-- ALUR PENGGUNAAN INTERAKTIF (PROGRESS TRACKER) -->
+<section class="card mb-20">
+  <div class="section-header">
+    <div>
+      <h2>Alur Penggunaan Website (Guided Demo Checklist)</h2>
+      <p class="muted small">Klik skenario di Simulator di bawah &mdash; progres pengujian Anda akan tercatat otomatis.</p>
+    </div>
+    <div class="progress-wrap">
+      <span id="progressText" class="small muted">0 / 4 Skenario Teruji</span>
+      <div class="progress-bar"><div id="progressFill" class="progress-fill" style="width: 0%"></div></div>
+    </div>
+  </div>
+  <div class="step-grid">
+    <div class="step-item" id="step-normal">
+      <span class="step-num">1</span>
+      <div>
+        <strong>Trafik Normal</strong>
+        <p class="muted small">Pastikan pencarian produk legal lolos ke database.</p>
+      </div>
+    </div>
+    <div class="step-item" id="step-auth">
+      <span class="step-num">2</span>
+      <div>
+        <strong>SQLi Auth Bypass</strong>
+        <p class="muted small">Bandingkan <code>/vulnerable/login</code> vs <code>/secure/login</code>.</p>
+      </div>
+    </div>
+    <div class="step-item" id="step-union">
+      <span class="step-num">3</span>
+      <div>
+        <strong>SQLi UNION Extract</strong>
+        <p class="muted small">Uji pencurian tabel <code>users</code> via pencarian produk.</p>
+      </div>
+    </div>
+    <div class="step-item" id="step-destructive">
+      <span class="step-num">4</span>
+      <div>
+        <strong>Destruktif DROP / DELETE</strong>
+        <p class="muted small">Buktikan <strong>Layer 4 Least Privilege</strong> melindungi DB.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VISUALISASI ALIRAN PAKET 4 LAPISAN (LIVE ANIMATED) -->
+<section class="card mb-20">
+  <div class="section-header">
+    <div>
+      <h2>Visualisasi Aliran Paket Defense-in-Depth (Live)</h2>
+      <p class="muted small" id="flowSubtitle">Pilih skenario serangan di bawah lalu tekan <strong>Jalankan Simulasi Side-by-Side</strong>.</p>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="openGuideModal()">Cara Toggle Mode WAF</button>
+  </div>
+
+  <div class="flow-lanes">
+    <!-- Lane Vulnerable -->
+    <div class="flow-lane">
+      <div class="lane-title"><span class="pill pill-danger">Jalur A: /vulnerable</span></div>
+      <div class="pipeline" id="pipe-vuln">
+        <div class="node" data-layer="1">
+          <div class="node-tag">Layer 1</div>
+          <div class="node-name">VPC Subnet</div>
+          <div class="node-state">Siap</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="2">
+          <div class="node-tag">Layer 2</div>
+          <div class="node-name">WAF ModSec</div>
+          <div class="node-state">{{ waf_mode }}</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="3">
+          <div class="node-tag">Layer 3</div>
+          <div class="node-name">Flask (Raw SQL)</div>
+          <div class="node-state">Siap</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="4">
+          <div class="node-tag">Layer 4</div>
+          <div class="node-name">PostgreSQL RBAC</div>
+          <div class="node-state">app_user</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lane Secure -->
+    <div class="flow-lane">
+      <div class="lane-title"><span class="pill pill-ok">Jalur B: /secure</span></div>
+      <div class="pipeline" id="pipe-sec">
+        <div class="node" data-layer="1">
+          <div class="node-tag">Layer 1</div>
+          <div class="node-name">VPC Subnet</div>
+          <div class="node-state">Siap</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="2">
+          <div class="node-tag">Layer 2</div>
+          <div class="node-name">WAF ModSec</div>
+          <div class="node-state">{{ waf_mode }}</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="3">
+          <div class="node-tag">Layer 3</div>
+          <div class="node-name">Flask (Param %s)</div>
+          <div class="node-state">Siap</div>
+        </div>
+        <div class="connector"></div>
+        <div class="node" data-layer="4">
+          <div class="node-tag">Layer 4</div>
+          <div class="node-name">PostgreSQL RBAC</div>
+          <div class="node-state">app_user</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARENA SIMULATOR SERANGAN INTERAKTIF (SIDE-BY-SIDE) -->
+<section class="card mb-20">
+  <div class="section-header">
+    <div>
+      <h2>Arena Simulator Serangan Interaktif (Side-by-Side)</h2>
+      <p class="muted small">Mengirim request HTTP sungguhan melewati WAF ke endpoint <code>/vulnerable</code> dan <code>/secure</code> secara bersamaan.</p>
+    </div>
+  </div>
+
+  <!-- Pilihan Skenario Cepat -->
+  <div class="scenario-grid">
+    <button type="button" class="scenario-card active" data-scenario="normal" onclick="selectScenario('normal', this)">
+      <span class="pill pill-info">Normal</span>
+      <strong>Pencarian Sah</strong>
+      <code>Cloud</code>
+    </button>
+    <button type="button" class="scenario-card" data-scenario="auth" onclick="selectScenario('auth', this)">
+      <span class="pill pill-warn">SQLi Login</span>
+      <strong>Auth Bypass</strong>
+      <code>' OR '1'='1' --</code>
+    </button>
+    <button type="button" class="scenario-card" data-scenario="union" onclick="selectScenario('union', this)">
+      <span class="pill pill-warn">SQLi Extract</span>
+      <strong>UNION Dump Users</strong>
+      <code>' UNION SELECT ...</code>
+    </button>
+    <button type="button" class="scenario-card" data-scenario="drop" onclick="selectScenario('drop', this)">
+      <span class="pill pill-danger">DDL Layer 4</span>
+      <strong>DROP TABLE</strong>
+      <code>'; DROP TABLE products; --</code>
+    </button>
+    <button type="button" class="scenario-card" data-scenario="delete" onclick="selectScenario('delete', this)">
+      <span class="pill pill-danger">DML Layer 4</span>
+      <strong>DELETE Users</strong>
+      <code>'; DELETE FROM users; --</code>
+    </button>
+  </div>
+
+  <!-- Kontrol Custom Payload -->
+  <div class="sim-controls">
+    <div class="sim-input-group">
+      <label for="simTarget">Target Fitur</label>
+      <select id="simTarget" onchange="togglePasswordField()">
+        <option value="products">Pencarian Produk (GET /*/products?q=...)</option>
+        <option value="login">Autentikasi Login (POST /*/login)</option>
+      </select>
+    </div>
+    <div class="sim-input-group flex-2">
+      <label for="simPayload">Payload Input (dapat dimodifikasi bebas)</label>
+      <input id="simPayload" type="text" value="Cloud" />
+    </div>
+    <div class="sim-input-group" id="simPassWrap" style="display: none;">
+      <label for="simPassword">Password</label>
+      <input id="simPassword" type="text" value="salah123" />
+    </div>
+    <div class="sim-btn-wrap">
+      <button type="button" id="runSimBtn" class="btn btn-primary" onclick="runSideBySideSimulation()">
+        &#9654; Jalankan Simulasi Side-by-Side
+      </button>
+    </div>
+  </div>
+
+  <!-- Hasil Perbandingan Side-by-Side -->
+  <div class="grid-2 mt-16">
+    <div class="result-panel panel-vuln" id="panelVuln">
+      <div class="result-header">
+        <div>
+          <span class="pill pill-danger">/vulnerable</span>
+          <strong id="vulnEndpointLabel">/vulnerable/products</strong>
+        </div>
+        <span class="meta-badge" id="vulnHttpBadge">Menunggu uji...</span>
+      </div>
+      <div id="vulnVerdict" class="verdict-box muted">Klik tombol "Jalankan Simulasi" untuk melihat hasil nyata.</div>
+      <div id="vulnQueryWrap" class="code-box mt-12" style="display:none;">
+        <div class="code-label">Query yang Dieksekusi:</div>
+        <pre><code id="vulnQueryCode"></code></pre>
+      </div>
+      <div id="vulnDataWrap" class="result-data mt-12"></div>
+    </div>
+
+    <div class="result-panel panel-sec" id="panelSec">
+      <div class="result-header">
+        <div>
+          <span class="pill pill-ok">/secure</span>
+          <strong id="secEndpointLabel">/secure/products</strong>
+        </div>
+        <span class="meta-badge" id="secHttpBadge">Menunggu uji...</span>
+      </div>
+      <div id="secVerdict" class="verdict-box muted">Klik tombol "Jalankan Simulasi" untuk melihat hasil nyata.</div>
+      <div id="secQueryWrap" class="code-box mt-12" style="display:none;">
+        <div class="code-label">Query Terparameterisasi:</div>
+        <pre><code id="secQueryCode"></code></pre>
+      </div>
+      <div id="secDataWrap" class="result-data mt-12"></div>
+    </div>
+  </div>
+</section>
+
+<!-- TELEMETRI LIVE DATABASE & RIWAYAT SIMULASI -->
+<div class="grid-2">
+  <section class="card">
+    <div class="section-header">
+      <h3>Monitor Integritas DB &amp; RBAC (Layer 4)</h3>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="refreshTelemetry()">Refresh Live</button>
+    </div>
+
+    <div class="metric-row">
+      <div class="metric-box">
+        <span class="metric-val" id="metricProducts">{{ telemetry.products_count if telemetry else 0 }}</span>
+        <span class="metric-label">Baris Tabel <code>products</code></span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-val" id="metricUsers">{{ telemetry.users_count if telemetry else 0 }}</span>
+        <span class="metric-label">Baris Tabel <code>users</code></span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-val" id="metricLogs">{{ telemetry.logs_count if telemetry else 0 }}</span>
+        <span class="metric-label">Log <code>INSERT</code> Sah</span>
+      </div>
+    </div>
+
+    <div class="rbac-matrix mt-16" id="rbacMatrix">
+      {% if db_status %}
+        <span class="rbac-chip rbac-allow">SELECT: {{ 'ALLOW' if db_status.can_select else 'DENY' }}</span>
+        <span class="rbac-chip rbac-allow">INSERT: {{ 'ALLOW' if db_status.can_insert else 'DENY' }}</span>
+        <span class="rbac-chip rbac-allow">UPDATE: {{ 'ALLOW' if db_status.can_update else 'DENY' }}</span>
+        <span class="rbac-chip rbac-deny">DELETE: {{ 'DENY' if not db_status.can_delete else 'ALLOW' }}</span>
+        <span class="rbac-chip rbac-deny">CREATE/DROP: {{ 'DENY' if not db_status.can_create_schema else 'ALLOW' }}</span>
+        <span class="rbac-chip rbac-deny">SUPERUSER: {{ 'NO' if not db_status.is_superuser else 'YES' }}</span>
+      {% else %}
+        <span class="muted">Status DB tidak tersedia: {{ db_error }}</span>
+      {% endif %}
+    </div>
+
+    <h4 class="mt-16">Aktivitas <code>search_logs</code> Terbaru (Bukti Hak INSERT)</h4>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Waktu</th><th>Mode</th><th>Query</th></tr>
+        </thead>
+        <tbody id="recentLogsBody">
+          {% if telemetry and telemetry.recent_logs %}
+            {% for log in telemetry.recent_logs %}
+              <tr>
+                <td><code>{{ log.logged_at }}</code></td>
+                <td><span class="pill {% if log.endpoint_mode == 'secure' %}pill-ok{% else %}pill-danger{% endif %}">{{ log.endpoint_mode }}</span></td>
+                <td><code>{{ log.query_text }}</code></td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3" class="muted">Belum ada log pencarian.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <h3>Riwayat Simulasi Sesi Ini</h3>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="clearHistory()">Bersihkan</button>
+    </div>
+    <p class="muted small">Mencatat hasil perbandingan nyata setiap simulasi untuk dokumentasi / screenshot laporan UAS.</p>
+    <div class="table-wrap mt-12">
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu</th>
+            <th>Skenario</th>
+            <th>/vulnerable</th>
+            <th>/secure</th>
+          </tr>
+        </thead>
+        <tbody id="simHistoryBody">
+          <tr id="emptyHistoryRow"><td colspan="4" class="muted">Belum ada simulasi dijalankan pada sesi ini.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
 {% endblock %}

@@ -9,7 +9,8 @@
     </span>
     <h1>Pencarian Produk &mdash; {{ 'Parameterized Query (Aman)' if mode == 'secure' else 'String Concatenation (Rentan SQLi)' }}</h1>
   </div>
-  <div>
+  <div class="btn-group">
+    <a class="btn btn-ghost" href="{{ url_for('home') }}">&larr; Kembali ke Arena</a>
     {% if mode == 'vulnerable' %}
       <a class="btn btn-success" href="{{ url_for('secure.products') }}">Pindah ke /secure/products</a>
     {% else %}
@@ -19,19 +20,25 @@
 </div>
 
 <section class="card">
-  <form method="GET" class="search-bar">
-    <input id="q" name="q" type="text" value="{{ q }}" placeholder="Cari nama atau kategori produk (misal: WAF, Cloud, Database)..." />
+  <form id="searchForm" method="GET" class="search-bar">
+    <input id="q" name="q" type="text" value="{{ q }}" placeholder="Cari nama atau kategori produk (misal: WAF, Cloud, Database)..." oninput="updateSearchPreview()" />
     <button type="submit" class="btn {% if mode == 'secure' %}btn-success{% else %}btn-danger{% endif %}">Cari</button>
     <a class="btn btn-ghost" href="{{ url_for(mode + '.products') }}">Reset</a>
   </form>
 
+  <!-- Live Real-Time SQL Preview -->
+  <div class="code-box mt-16">
+    <div class="code-label">Live SQL Preview (Real-Time saat mengetik):</div>
+    <pre><code id="liveSearchPreview"></code></pre>
+  </div>
+
   <div class="payload-box">
-    <p class="muted small">Klik untuk mengisi cepat contoh payload uji:</p>
+    <p class="muted small">Klik untuk mengisi otomatis &amp; langsung menjalankan pengujian:</p>
     <div class="chips">
-      <button type="button" class="chip" onclick="fillSearch('Cloud')">Normal: Cloud</button>
-      <button type="button" class="chip chip-warn" onclick="fillSearch(&quot;' UNION SELECT id, username, password, 0, 0, email FROM users --&quot;)">SQLi UNION Extract Users</button>
-      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DROP TABLE products; --&quot;)">SQLi DROP TABLE (Uji Layer 4)</button>
-      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DELETE FROM users; --&quot;)">SQLi DELETE (Uji Layer 4)</button>
+      <button type="button" class="chip" onclick="fillSearch('Cloud', true)">&#9654; Normal: Cloud</button>
+      <button type="button" class="chip chip-warn" onclick="fillSearch(&quot;' UNION SELECT id, username, password, 0, 0, email FROM users --&quot;, true)">&#9654; SQLi UNION Extract Users</button>
+      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DROP TABLE products; --&quot;, true)">&#9654; SQLi DROP TABLE (Layer 4)</button>
+      <button type="button" class="chip chip-danger" onclick="fillSearch(&quot;'; DELETE FROM users; --&quot;, true)">&#9654; SQLi DELETE (Layer 4)</button>
     </div>
   </div>
 </section>
@@ -51,7 +58,7 @@
 
 {% if executed_query %}
   <div class="code-box mt-16">
-    <div class="code-label">SQL yang Dieksekusi (Demo Edukatif):</div>
+    <div class="code-label">SQL yang Dieksekusi Server:</div>
     <pre><code>{{ executed_query }}</code></pre>
   </div>
 {% endif %}
@@ -89,10 +96,44 @@
     <p class="muted">Tidak ada produk yang cocok dengan pencarian Anda.</p>
   {% endif %}
 </section>
+{% endblock %}
 
+{% block scripts %}
 <script>
-  function fillSearch(val) {
-    document.getElementById('q').value = val;
+  const PAGE_MODE = "{{ mode }}";
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
+
+  function updateSearchPreview() {
+    const q = document.getElementById('q').value;
+    const box = document.getElementById('liveSearchPreview');
+    if (!q) {
+      box.textContent = "SELECT id, name, category, price, stock, description FROM products ORDER BY id";
+      return;
+    }
+    if (PAGE_MODE === 'vulnerable') {
+      box.innerHTML =
+        "SELECT id, name, category, price, stock, description FROM products\n" +
+        "WHERE name ILIKE '%<span class='hl-vuln'>" + escapeHtml(q) + "</span>%' " +
+        "OR category ILIKE '%<span class='hl-vuln'>" + escapeHtml(q) + "</span>%' ORDER BY id";
+    } else {
+      box.innerHTML =
+        "SELECT id, name, category, price, stock, description FROM products\n" +
+        "WHERE name ILIKE <span class='hl-sec'>%s</span> OR category ILIKE <span class='hl-sec'>%s</span> ORDER BY id\n" +
+        "-- bound params: (<span class='hl-sec'>'%" + escapeHtml(q) + "%'</span>, <span class='hl-sec'>'%" + escapeHtml(q) + "%'</span>)";
+    }
+  }
+
+  function fillSearch(val, autoSubmit) {
+    document.getElementById('q').value = val;
+    updateSearchPreview();
+    if (autoSubmit) {
+      document.getElementById('searchForm').submit();
+    }
+  }
+
+  updateSearchPreview();
 </script>
 {% endblock %}

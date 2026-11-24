@@ -14,11 +14,12 @@
         <span>Cloud Security Lab &mdash; SQLi Defense-in-Depth</span>
       </a>
       <nav class="nav">
-        <a href="{{ url_for('home') }}">Dashboard</a>
-        <a class="nav-vuln" href="{{ url_for('vulnerable.login') }}">Vulnerable Login</a>
-        <a class="nav-vuln" href="{{ url_for('vulnerable.products') }}">Vulnerable Search</a>
-        <a class="nav-sec" href="{{ url_for('secure.login') }}">Secure Login</a>
-        <a class="nav-sec" href="{{ url_for('secure.products') }}">Secure Search</a>
+        <a class="{% if request.endpoint == 'home' %}active{% endif %}" href="{{ url_for('home') }}">Arena Interaktif</a>
+        <a class="nav-vuln {% if request.endpoint == 'vulnerable.login' %}active{% endif %}" href="{{ url_for('vulnerable.login') }}">Vulnerable Login</a>
+        <a class="nav-vuln {% if request.endpoint == 'vulnerable.products' %}active{% endif %}" href="{{ url_for('vulnerable.products') }}">Vulnerable Search</a>
+        <a class="nav-sec {% if request.endpoint == 'secure.login' %}active{% endif %}" href="{{ url_for('secure.login') }}">Secure Login</a>
+        <a class="nav-sec {% if request.endpoint == 'secure.products' %}active{% endif %}" href="{{ url_for('secure.products') }}">Secure Search</a>
+        <button type="button" class="btn-nav-guide" onclick="openGuideModal()">Alur &amp; Perintah WAF</button>
       </nav>
     </div>
   </header>
@@ -32,5 +33,52 @@
       Proyek UAS Keamanan Jaringan Cloud &bull; Simulasi VPC 3-Tier (Nginx ModSecurity CRS + Flask + PostgreSQL Least Privilege)
     </div>
   </footer>
+
+  <!-- Modal Panduan Alur & Perintah Toggle WAF -->
+  <div id="guideModal" class="modal-backdrop" onclick="closeGuideModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Panduan Alur Demo &amp; Toggle Mode WAF</h3>
+        <button type="button" class="modal-close" onclick="closeGuideModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ol class="guide-steps">
+          <li><strong>Langkah 1 &mdash; Cek Status 4 Lapisan:</strong> Pastikan mode WAF aktif, role DB adalah <code>app_user</code> (bukan superuser), dan 6 produk utuh.</li>
+          <li><strong>Langkah 2 &mdash; Uji Mode WAF Blocking (<code>On</code>):</strong> Jalankan simulasi SQLi di Arena. Semua serangan otomatis ditahan di <strong>Layer 2 (WAF HTTP 403)</strong>.</li>
+          <li><strong>Langkah 3 &mdash; Ubah WAF ke <code>DetectionOnly</code>:</strong> Jalankan perintah PowerShell di bawah, lalu refresh halaman ini.</li>
+          <li><strong>Langkah 4 &mdash; Uji Layer 3 &amp; Layer 4:</strong> Jalankan ulang simulasi <em>Auth Bypass</em>, <em>UNION Extract</em>, dan <em>DROP TABLE</em>. Lihat bagaimana <code>/secure</code> menahan serangan di <strong>Layer 3</strong> dan PostgreSQL menahan <code>DROP/DELETE</code> di <strong>Layer 4</strong>!</li>
+        </ol>
+
+        <div class="cmd-group">
+          <div class="cmd-label">Mode WAF: DetectionOnly (Mendeteksi di log, meneruskan ke Layer 3 &amp; 4)</div>
+          <div class="cmd-row">
+            <code id="cmdDetect">$env:MODSEC_RULE_ENGINE="DetectionOnly"; docker compose up -d --force-recreate waf webapp</code>
+            <button type="button" class="btn-copy" onclick="copyText('cmdDetect')">Salin</button>
+          </div>
+        </div>
+
+        <div class="cmd-group">
+          <div class="cmd-label">Mode WAF: Blocking (On &mdash; Memblokir SQLi dengan HTTP 403)</div>
+          <div class="cmd-row">
+            <code id="cmdBlock">$env:MODSEC_RULE_ENGINE="On"; docker compose up -d --force-recreate waf webapp</code>
+            <button type="button" class="btn-copy" onclick="copyText('cmdBlock')">Salin</button>
+          </div>
+        </div>
+
+        <div class="cmd-group">
+          <div class="cmd-label">Lihat Audit Log WAF secara Real-Time (PowerShell)</div>
+          <div class="cmd-row">
+            <code id="cmdLog">Get-Content .\logs\waf\audit.log -Tail 5 -Wait</code>
+            <button type="button" class="btn-copy" onclick="copyText('cmdLog')">Salin</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="{{ url_for('static', filename='lab.js') }}"></script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>

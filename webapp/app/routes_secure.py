@@ -1,4 +1,4 @@
-from flask import Blueprint, make_response, redirect, render_template, request, url_for
+from flask import Blueprint, jsonify, make_response, redirect, render_template, request, url_for
 import psycopg2
 
 from .db import get_db_connection
@@ -6,6 +6,23 @@ from .db import get_db_connection
 secure_bp = Blueprint("secure", __name__, url_prefix="/secure")
 
 MAX_INPUT_LENGTH = 100
+
+
+def _wants_json():
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("Accept", "")
+    )
+
+
+def _serialize_rows(rows):
+    result = []
+    for row in rows:
+        item = dict(row)
+        if "price" in item and item["price"] is not None:
+            item["price"] = float(item["price"])
+        result.append(item)
+    return result
 
 
 @secure_bp.route("/")
@@ -51,17 +68,34 @@ def login():
                 if conn:
                     conn.close()
 
-    resp = make_response(
-        render_template(
-            "login.html",
-            mode="secure",
-            username=username,
-            user=user,
-            error=error,
-            defense_blocked=None,
-            executed_query=executed_query,
+    if request.method == "POST" and _wants_json():
+        resp = make_response(
+            jsonify(
+                {
+                    "mode": "secure",
+                    "action": "login",
+                    "outcome": "authenticated" if user else "blocked_layer3",
+                    "defense_layer": "App-Parameterized-Query",
+                    "user": dict(user) if user else None,
+                    "error": error,
+                    "defense_blocked": None,
+                    "executed_query": executed_query,
+                }
+            )
         )
-    )
+    else:
+        resp = make_response(
+            render_template(
+                "login.html",
+                mode="secure",
+                username=username,
+                user=user,
+                error=error,
+                defense_blocked=None,
+                executed_query=executed_query,
+            )
+        )
+
     resp.headers["X-Defense-Layer"] = "App-Parameterized-Query"
     return resp
 
@@ -111,16 +145,35 @@ def products():
             if conn:
                 conn.close()
 
-    resp = make_response(
-        render_template(
-            "products.html",
-            mode="secure",
-            q=q,
-            products=items,
-            error=error,
-            defense_blocked=None,
-            executed_query=executed_query,
+    if _wants_json():
+        serialized = _serialize_rows(items)
+        resp = make_response(
+            jsonify(
+                {
+                    "mode": "secure",
+                    "action": "products",
+                    "outcome": "blocked_layer3" if (q and len(serialized) == 0) else "ok",
+                    "defense_layer": "App-Parameterized-Query",
+                    "count": len(serialized),
+                    "products": serialized,
+                    "error": error,
+                    "defense_blocked": None,
+                    "executed_query": executed_query,
+                }
+            )
         )
-    )
+    else:
+        resp = make_response(
+            render_template(
+                "products.html",
+                mode="secure",
+                q=q,
+                products=items,
+                error=error,
+                defense_blocked=None,
+                executed_query=executed_query,
+            )
+        )
+
     resp.headers["X-Defense-Layer"] = "App-Parameterized-Query"
     return resp

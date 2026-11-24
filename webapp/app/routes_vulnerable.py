@@ -1,10 +1,27 @@
-from flask import Blueprint, make_response, redirect, render_template, request, url_for
+from flask import Blueprint, jsonify, make_response, redirect, render_template, request, url_for
 import psycopg2
 from psycopg2 import errors as pg_errors
 
 from .db import get_db_connection
 
 vulnerable_bp = Blueprint("vulnerable", __name__, url_prefix="/vulnerable")
+
+
+def _wants_json():
+    return (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or "application/json" in request.headers.get("Accept", "")
+    )
+
+
+def _serialize_rows(rows):
+    result = []
+    for row in rows:
+        item = dict(row)
+        if "price" in item and item["price"] is not None:
+            item["price"] = float(item["price"])
+        result.append(item)
+    return result
 
 
 @vulnerable_bp.route("/")
@@ -52,17 +69,39 @@ def login():
             if conn:
                 conn.close()
 
-    resp = make_response(
-        render_template(
-            "login.html",
-            mode="vulnerable",
-            username=username,
-            user=user,
-            error=error,
-            defense_blocked=defense_blocked,
-            executed_query=executed_query,
+    if request.method == "POST" and _wants_json():
+        outcome = (
+            "blocked_layer4"
+            if defense_blocked
+            else ("authenticated" if user else "failed")
         )
-    )
+        resp = make_response(
+            jsonify(
+                {
+                    "mode": "vulnerable",
+                    "action": "login",
+                    "outcome": outcome,
+                    "defense_layer": "DB-Least-Privilege" if defense_blocked else None,
+                    "user": dict(user) if user else None,
+                    "error": error,
+                    "defense_blocked": defense_blocked,
+                    "executed_query": executed_query,
+                }
+            )
+        )
+    else:
+        resp = make_response(
+            render_template(
+                "login.html",
+                mode="vulnerable",
+                username=username,
+                user=user,
+                error=error,
+                defense_blocked=defense_blocked,
+                executed_query=executed_query,
+            )
+        )
+
     if defense_blocked:
         resp.headers["X-Defense-Layer"] = "DB-Least-Privilege"
     return resp
@@ -116,17 +155,45 @@ def products():
         if conn:
             conn.close()
 
-    resp = make_response(
-        render_template(
-            "products.html",
-            mode="vulnerable",
-            q=q,
-            products=items,
-            error=error,
-            defense_blocked=defense_blocked,
-            executed_query=executed_query,
+    if _wants_json():
+        serialized = _serialize_rows(items)
+        leaked_users = any(
+            str(item.get("description", "")).endswith("@cloudshop.local")
+            for item in serialized
         )
-    )
+        outcome = (
+            "blocked_layer4"
+            if defense_blocked
+            else ("data_leaked" if leaked_users else ("error" if error else "ok"))
+        )
+        resp = make_response(
+            jsonify(
+                {
+                    "mode": "vulnerable",
+                    "action": "products",
+                    "outcome": outcome,
+                    "defense_layer": "DB-Least-Privilege" if defense_blocked else None,
+                    "count": len(serialized),
+                    "products": serialized,
+                    "error": error,
+                    "defense_blocked": defense_blocked,
+                    "executed_query": executed_query,
+                }
+            )
+        )
+    else:
+        resp = make_response(
+            render_template(
+                "products.html",
+                mode="vulnerable",
+                q=q,
+                products=items,
+                error=error,
+                defense_blocked=defense_blocked,
+                executed_query=executed_query,
+            )
+        )
+
     if defense_blocked:
         resp.headers["X-Defense-Layer"] = "DB-Least-Privilege"
     return resp

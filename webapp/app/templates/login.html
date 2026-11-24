@@ -9,7 +9,8 @@
     </span>
     <h1>Halaman Login &mdash; {{ 'Parameterized Query (Aman)' if mode == 'secure' else 'String Concatenation (Rentan SQLi)' }}</h1>
   </div>
-  <div>
+  <div class="btn-group">
+    <a class="btn btn-ghost" href="{{ url_for('home') }}">&larr; Kembali ke Arena</a>
     {% if mode == 'vulnerable' %}
       <a class="btn btn-success" href="{{ url_for('secure.login') }}">Pindah ke /secure/login</a>
     {% else %}
@@ -20,24 +21,31 @@
 
 <div class="grid-2">
   <section class="card">
-    <form method="POST" class="form">
+    <form id="loginForm" method="POST" class="form">
       <label for="username">Username</label>
-      <input id="username" name="username" type="text" value="{{ username }}" placeholder="Contoh: budi atau ' OR '1'='1' --" required />
+      <input id="username" name="username" type="text" value="{{ username }}" placeholder="Contoh: budi atau ' OR '1'='1' --" required oninput="updateLoginPreview()" />
 
       <label for="password">Password</label>
-      <input id="password" name="password" type="password" placeholder="Masukkan password" />
+      <input id="password" name="password" type="password" placeholder="Masukkan password" oninput="updateLoginPreview()" />
 
       <button type="submit" class="btn {% if mode == 'secure' %}btn-success{% else %}btn-danger{% endif %}">
         Masuk ({{ mode|upper }})
       </button>
     </form>
 
+    <!-- Live Real-Time SQL Preview -->
+    <div class="code-box mt-16">
+      <div class="code-label">Live SQL Preview (Real-Time saat mengetik):</div>
+      <pre><code id="liveSqlPreview"></code></pre>
+    </div>
+
     <div class="payload-box">
-      <p class="muted small">Klik untuk mengisi cepat contoh payload uji:</p>
+      <p class="muted small">Klik untuk mengisi otomatis &amp; langsung menguji:</p>
       <div class="chips">
-        <button type="button" class="chip" onclick="fillLogin('budi', 'BudiPass123!')">Valid: budi</button>
-        <button type="button" class="chip chip-warn" onclick="fillLogin(&quot;' OR '1'='1' --&quot;, 'x')">SQLi Auth Bypass</button>
-        <button type="button" class="chip chip-danger" onclick="fillLogin(&quot;admin' --&quot;, 'x')">SQLi Comment Bypass</button>
+        <button type="button" class="chip" onclick="fillLogin('budi', 'BudiPass123!', false)">Isi Valid: budi</button>
+        <button type="button" class="chip chip-warn" onclick="fillLogin(&quot;' OR '1'='1' --&quot;, 'x', false)">Isi Auth Bypass</button>
+        <button type="button" class="chip chip-danger" onclick="fillLogin(&quot;' OR '1'='1' --&quot;, 'x', true)">&#9654; Isi &amp; Serang Langsung</button>
+        <button type="button" class="chip chip-warn" onclick="fillLogin(&quot;admin' --&quot;, 'x', true)">&#9654; Admin Comment Bypass</button>
       </div>
     </div>
   </section>
@@ -67,19 +75,58 @@
 
     {% if executed_query %}
       <div class="code-box">
-        <div class="code-label">SQL yang Dieksekusi (Demo Edukatif):</div>
+        <div class="code-label">SQL yang Dieksekusi Server:</div>
         <pre><code>{{ executed_query }}</code></pre>
       </div>
     {% else %}
       <p class="muted">Kirim form login untuk melihat bagaimana query dieksekusi pada mode <code>/{{ mode }}</code>.</p>
     {% endif %}
+
+    <div class="info-callout mt-16">
+      {% if mode == 'vulnerable' %}
+        <strong>Mengapa rentan?</strong> Input pengguna digabungkan langsung ke string SQL sehingga tanda kutip tunggal (<code>'</code>) dapat memutus konteks string dan menyuntikkan kondisi <code>OR '1'='1'</code>.
+      {% else %}
+        <strong>Mengapa aman?</strong> Driver <code>psycopg2</code> mengirim template SQL dan parameter secara terpisah (<em>bind parameters</em>), sehingga tanda kutip dan operator SQL diperlakukan murni sebagai teks literal.
+      {% endif %}
+    </div>
   </section>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-  function fillLogin(u, p) {
+  const PAGE_MODE = "{{ mode }}";
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function updateLoginPreview() {
+    const u = document.getElementById('username').value || '<username>';
+    const p = document.getElementById('password').value ? '***' : '<password>';
+    const box = document.getElementById('liveSqlPreview');
+    if (PAGE_MODE === 'vulnerable') {
+      box.innerHTML =
+        "SELECT id, username, role, email FROM users\n" +
+        "WHERE username = '<span class='hl-vuln'>" + escapeHtml(u) + "</span>' " +
+        "AND password = '<span class='hl-vuln'>" + escapeHtml(p) + "</span>'";
+    } else {
+      box.innerHTML =
+        "SELECT id, username, role, email FROM users\n" +
+        "WHERE username = <span class='hl-sec'>%s</span> AND password = <span class='hl-sec'>%s</span>\n" +
+        "-- bound params: (<span class='hl-sec'>'" + escapeHtml(u) + "'</span>, '***')";
+    }
+  }
+
+  function fillLogin(u, p, autoSubmit) {
     document.getElementById('username').value = u;
     document.getElementById('password').value = p;
+    updateLoginPreview();
+    if (autoSubmit) {
+      document.getElementById('loginForm').submit();
+    }
   }
+
+  updateLoginPreview();
 </script>
 {% endblock %}
